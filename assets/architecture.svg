@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 540" width="1000" height="540" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Durable MCP gateway architecture</title>
+  <desc>An agent calls the stdio MCP server, which starts a RunScriptWorkflow on the Temporal Service. A Worker runs the Workflow, which steps the script in the Monty sandbox through Activities and runs each upstream tool call as a call_tool_activity against the upstream MCP servers.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .box { fill: #f6f8fa; stroke: #d0d7de; stroke-width: 1.5; }
+    .temporal { fill: #eef0ff; stroke: #5b5bd6; stroke-width: 1.5; }
+    .inner { fill: #ffffff; stroke: #d0d7de; stroke-width: 1.2; }
+    .group { fill: none; stroke: #8c959f; stroke-width: 1.2; stroke-dasharray: 6 5; }
+    .t { fill: #1f2328; font-size: 15px; }
+    .h { fill: #1f2328; font-size: 17px; font-weight: 600; }
+    .m { fill: #59636e; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .s { fill: #59636e; font-size: 13px; }
+    .g { fill: #59636e; font-size: 13px; font-weight: 600; }
+    .line { stroke: #59636e; stroke-width: 1.6; fill: none; }
+    .head { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .box { fill: #161b22; stroke: #3d444d; }
+      .temporal { fill: #1c1b3a; stroke: #8b8cf0; }
+      .inner { fill: #0d1117; stroke: #3d444d; }
+      .group { stroke: #6e7681; }
+      .t, .h { fill: #e6edf3; }
+      .m, .s, .g { fill: #9198a1; }
+      .line { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path class="head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1000" height="540" rx="12"/>
+
+  <!-- Agent -->
+  <rect class="box" x="24" y="48" width="180" height="96" rx="10"/>
+  <text class="h" x="114" y="86" text-anchor="middle">Agent</text>
+  <text class="s" x="114" y="108" text-anchor="middle">Claude Code, or any</text>
+  <text class="s" x="114" y="126" text-anchor="middle">MCP client</text>
+
+  <!-- stdio server -->
+  <rect class="box" x="258" y="48" width="236" height="150" rx="10"/>
+  <text class="h" x="376" y="80" text-anchor="middle">stdio MCP server</text>
+  <text class="m" x="376" y="100" text-anchor="middle">stdio/server.py</text>
+  <text class="m" x="276" y="128">run_script</text>
+  <text class="m" x="276" y="148">wait_script_result</text>
+  <text class="m" x="276" y="168">check_script_result</text>
+  <text class="m" x="276" y="188">list_upstream_tools</text>
+
+  <!-- Durable backend group -->
+  <rect class="group" x="540" y="18" width="440" height="504" rx="14"/>
+  <text class="g" x="560" y="40">Durable backend: durable-mcp-gateway backend</text>
+
+  <!-- Temporal Service -->
+  <rect class="temporal" x="560" y="56" width="400" height="104" rx="10"/>
+  <text class="h" x="760" y="86" text-anchor="middle">Temporal Service</text>
+  <text class="s" x="760" y="110" text-anchor="middle">Dev server on localhost:7677, Web UI on :8677</text>
+  <text class="s" x="760" y="132" text-anchor="middle">Stores each Workflow's Event History</text>
+  <text class="s" x="760" y="150" text-anchor="middle">in a SQLite file that survives restarts</text>
+
+  <!-- Worker -->
+  <rect class="box" x="560" y="206" width="400" height="296" rx="10"/>
+  <text class="h" x="580" y="236">Worker</text>
+  <text class="m" x="648" y="236">durable_mcp_gateway/worker.py</text>
+  <text class="s" x="580" y="258">Up to 10 Activities at once</text>
+
+  <!-- Workflow -->
+  <rect class="inner" x="580" y="274" width="360" height="62" rx="8"/>
+  <text class="t" x="760" y="300" text-anchor="middle" font-weight="600">RunScriptWorkflow</text>
+  <text class="m" x="760" y="322" text-anchor="middle">workflow.py: one per script</text>
+
+  <!-- Activities -->
+  <rect class="inner" x="580" y="372" width="172" height="112" rx="8"/>
+  <text class="t" x="666" y="398" text-anchor="middle" font-weight="600">call_tool_activity</text>
+  <text class="s" x="666" y="420" text-anchor="middle">One per tool call</text>
+  <text class="s" x="666" y="440" text-anchor="middle">Retries up to 8 times</text>
+  <text class="s" x="666" y="460" text-anchor="middle">with backoff</text>
+
+  <rect class="inner" x="768" y="372" width="172" height="112" rx="8"/>
+  <text class="t" x="854" y="398" text-anchor="middle" font-weight="600">monty_start</text>
+  <text class="t" x="854" y="418" text-anchor="middle" font-weight="600">monty_resume</text>
+  <text class="s" x="854" y="440" text-anchor="middle">Step the script in the</text>
+  <text class="s" x="854" y="460" text-anchor="middle">Pydantic Monty sandbox</text>
+
+  <!-- Upstream -->
+  <rect class="box" x="258" y="372" width="236" height="112" rx="10"/>
+  <text class="h" x="376" y="404" text-anchor="middle">Upstream MCP servers</text>
+  <text class="s" x="376" y="428" text-anchor="middle">Notion MCP in the example,</text>
+  <text class="s" x="376" y="448" text-anchor="middle">set in upstreams.json</text>
+  <text class="s" x="376" y="468" text-anchor="middle">OAuth token from the vault</text>
+
+  <!-- Arrows -->
+  <line class="line" x1="204" y1="96" x2="254" y2="96" marker-end="url(#a)"/>
+  <text class="s" x="229" y="86" text-anchor="middle">MCP</text>
+
+  <line class="line" x1="494" y1="100" x2="556" y2="100" marker-end="url(#a)"/>
+  <text class="s" x="517" y="90" text-anchor="middle">start,</text>
+  <text class="s" x="517" y="122" text-anchor="middle">result</text>
+
+  <line class="line" x1="760" y1="160" x2="760" y2="270" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text class="m" x="770" y="190">Task Queue</text>
+
+  <line class="line" x1="666" y1="336" x2="666" y2="368" marker-end="url(#a)"/>
+  <line class="line" x1="854" y1="336" x2="854" y2="368" marker-end="url(#a)"/>
+
+  <line class="line" x1="580" y1="428" x2="498" y2="428" marker-end="url(#a)"/>
+  <text class="s" x="537" y="418" text-anchor="middle">MCP</text>
+</svg>
