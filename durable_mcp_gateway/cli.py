@@ -21,6 +21,10 @@
     durable-mcp-gateway http [--port N]      run the same MCP server over streamable HTTP at
                                              http://127.0.0.1:N/mcp (default 9677), as a
                                              long-lived process you can watch and kill
+    durable-mcp-gateway seed-demo --parent <page-url>
+                                             create the demo 1-pager database from
+                                             examples/demo-db under a Notion page and print
+                                             its data source URL
 
 `stdio` and `http` both take --no-temporal: discover the upstreams and run each script in that
 process, with no backend, no retries, and nothing surviving the process. This is code mode
@@ -205,6 +209,14 @@ def main() -> None:
         help="run the MCP server over streamable HTTP at http://127.0.0.1:PORT/mcp",
     )
     h.add_argument("--port", type=int, default=9677, help="port to listen on (default 9677)")
+    sd = sub.add_parser(
+        "seed-demo", parents=[common],
+        help="create the demo 1-pager database (examples/demo-db) under a Notion page",
+    )
+    sd.add_argument(
+        "--parent", required=True, metavar="PAGE_URL",
+        help="the Notion page to create the database under; uses the `connect notion` login",
+    )
 
     args = ap.parse_args()
     config.configure_logging(verbose=args.verbose)
@@ -237,6 +249,10 @@ def main() -> None:
         from stdio.run import http_main
 
         http_main(args.port, args.no_temporal)
+    elif args.command == "seed-demo":
+        from .seed_demo import seed_demo
+
+        seed_demo(args.parent)
 
 
 if __name__ == "__main__":

@@ -60,7 +60,7 @@ Then restart Claude Code and ask it to scan a Notion database, for example:
 
 The agent calls `list_upstream_tools` to learn the typed functions, then `run_script` with its script. Open the Temporal Web UI at http://localhost:8677 and open the newest `RunScriptWorkflow` to watch each tool call run as an Activity.
 
-To run the example script without an agent, set `DS` at the top of [examples/notion_find_1pagers_mentioning_ai.py](examples/notion_find_1pagers_mentioning_ai.py) to your own database's data source URL, then run:
+To run the example script without an agent, set `DS` at the top of [examples/notion_find_1pagers_mentioning_ai.py](examples/notion_find_1pagers_mentioning_ai.py) to your own database's data source URL. To scan the video's database instead, recreate it with `uv run durable-mcp-gateway seed-demo --parent <notion-page-url>` and use the URL it prints. Then run:
 
 ```bash
 uv run durable-mcp-gateway call-tool run_script examples/notion_find_1pagers_mentioning_ai.py

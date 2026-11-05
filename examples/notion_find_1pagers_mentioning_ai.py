@@ -1,4 +1,4 @@
-"""Find recent 1-pagers in the Product Proposal database whose BODY mentions AI or agents.
+"""Find recent 1-pagers in a Notion database whose BODY mentions AI or agents.
 
     uv run durable-mcp-gateway call-tool run_script examples/notion_find_1pagers_mentioning_ai.py
 
@@ -19,9 +19,20 @@ fire on 'email', 'detail', 'available', 'maintain', ...).
 
 import asyncio
 
-DS = "collection://1f38fc56-7738-80b5-afad-000bbfbe4193"
-# Cap the scan so the demo runs quickly. Bump it to scan more; the DB is 140+ 1-pagers.
+# Paste the data source URL that `uv run durable-mcp-gateway seed-demo --parent <page-url>`
+# prints, or the collection:// URL of your own database with a "Name" title column.
+DS = "collection://YOUR-DATA-SOURCE-ID"
+# Cap the scan so the demo runs quickly. Bump it to scan more; the demo database has 300 1-pagers.
 LIMIT = 100
+
+
+def page_body(fetched: str) -> str:
+    # notion-fetch's text also carries the title, properties and ancestor page titles.
+    start = fetched.find("<content>")
+    end = fetched.find("</content>")
+    if start == -1 or end == -1:
+        return ""
+    return fetched[start + len("<content>"):end]
 
 
 def mentions_ai_or_agent(text: str) -> bool:
@@ -55,7 +66,7 @@ async def main():
     docs = await asyncio.gather(*[notion_notion_fetch(id=r["url"]) for r in rows])
     matches = []
     for i in range(len(rows)):
-        if mentions_ai_or_agent(docs[i].get("text") or ""):
+        if mentions_ai_or_agent(page_body(docs[i].get("text") or "")):
             matches.append({"name": rows[i]["Name"], "url": rows[i]["url"]})
 
     print("matched " + str(len(matches)) + " of " + str(len(rows)))
