@@ -18,7 +18,7 @@ This repo is a code-mode MCP gateway built on Temporal. The agent gets one tool,
 
 ![Three panels comparing how an agent scans Notion pages, with the context window measured in the video. 1, plain MCP tools: 30 fetch calls each return a full page body into the agent's context, which reaches 142K tokens. 2, code mode: one run_script call runs a script in the Monty sandbox, the page bodies stay there, and only the matches come back, so the context reaches 68K tokens for the same 30 pages. 3, code mode on Temporal: the script runs as a Workflow with one Activity per fetch; at a Worker restart, finished Activities aren't run again and queued ones continue, and the context reaches 72K tokens for 300 pages. In each bar, the gray part is the session's starting point of about 55K tokens.](assets/comparison.svg)
 
-Last verified 2026-11-04: tests pass on macOS (102 passed); the Notion scan wasn't re-run.
+Last verified 2026-11-04: tests (121 passed) and lint pass on macOS; the Notion scan wasn't re-run.
 
 ## The failure mode
 
@@ -37,12 +37,15 @@ You need macOS or Linux (tested on macOS), [uv](https://docs.astral.sh/uv/), Pyt
 | Step | Command | Success |
 | --- | --- | --- |
 | Install | `uv sync` | Exit code 0 |
-| Test | `uv run pytest tests/ -v` | `102 passed` |
+| Test | `uv run pytest tests/ -v` | `121 passed` |
+| Lint | `uv run ruff check .` | `All checks passed!` |
 | Add the Notion upstream | `mkdir -p ~/.durable-mcp-gateway && cp examples/upstreams.json ~/.durable-mcp-gateway/` | Exit code 0 |
 | Authorize Notion (opens your browser) | `uv run durable-mcp-gateway connect notion` | The browser OAuth flow finishes and the token is stored |
+| Recreate the video's database (optional) | `uv run durable-mcp-gateway seed-demo --parent <notion-page-url>` | `Seeded 300 pages. Set DS in examples/notion_find_1pagers_mentioning_ai.py to:`, then the data source URL |
 | Check the config (optional) | `uv run durable-mcp-gateway validate` | `✓ notion: N tool(s)` for each upstream, and exit code 0 |
 | Start the backend and leave it running | `uv run durable-mcp-gateway backend` | `durable-mcp-gateway backend ready: Temporal at localhost:7677, Web UI http://localhost:8677, worker polling 'durable-mcp-gateway'. Press Ctrl-C to stop.` |
 | Register the gateway with Claude Code | `claude mcp add gateway --scope user -- uv --directory $(pwd) run durable-mcp-gateway stdio` | `gateway` appears in `claude mcp list` |
+| Run the gateway without Temporal (optional, for the comparison) | `uv run durable-mcp-gateway http --no-temporal` | `[durable-mcp-gateway] MCP over streamable-http at http://127.0.0.1:9677/mcp; no Temporal: scripts run in this process against N tool(s) from 1 upstream(s).` |
 
 To reset, stop the backend, then delete the gateway's local state:
 
@@ -50,7 +53,7 @@ To reset, stop the backend, then delete the gateway's local state:
 rm -rf ~/.durable-mcp-gateway   # reset: exit code 0
 ```
 
-This deletes the Event History database, the learned tool shapes, the file token store, and `upstreams.json`, so copy the config again before the next run. On macOS, the Notion token stays in Keychain. The repo has no lint command yet.
+This deletes the Event History database, the learned tool shapes, the file token store, and `upstreams.json`, so copy the config again before the next run. On macOS, the Notion token stays in Keychain.
 
 Authorize Notion before you start the backend. A configured OAuth upstream with no stored token makes the backend stop at startup.
 
@@ -112,6 +115,7 @@ These are the lines the gateway prints at each moment, as written in the source.
 | A script runs longer than 10 seconds | `run_script` returns `Script still running after 10s (normal for a long fan-out); it keeps running on the backend.` with a `handle:` and a `live progress:` link to the Web UI. The agent then calls `wait_script_result` with the handle. |
 | The Worker stops | `durable-mcp-gateway worker stopped` |
 | The Worker starts again | `durable-mcp-gateway worker ready: polling 'durable-mcp-gateway' at localhost:7677. Press Ctrl-C to stop.` |
+| The gateway without Temporal is stopped mid-scan | `[durable-mcp-gateway] killed — in-flight work is lost.` |
 | The example finishes | `scanning the 100 most recent 1-pagers`, then `matched N of 100` and one line per matching page |
 
 ## Same scan, two outcomes
@@ -145,6 +149,7 @@ To try the side without Temporal, run `uv run durable-mcp-gateway http --no-temp
 
 - **Not a production gateway.** It runs one local user against a local Temporal dev server, and stores OAuth tokens in macOS Keychain or a `0600` file.
 - **Not safe for write tools as is.** A tool call can run more than once: Activities retry up to 8 times, and a call in flight when the Worker stops runs again. That's fine for reads like `notion-fetch`. A tool that writes needs an idempotency key the upstream checks, or should be left out with the upstream's `"skip"` list.
+- **Not safe to leave running on a shared machine.** The `http` mode has no authentication. It listens only on 127.0.0.1 and rejects requests whose Host or Origin header isn't local, but any program on your machine that can reach the port can run scripts with your upstream logins. Stop it when you finish the comparison.
 - **Not general Python.** Scripts run in the Monty sandbox, with no imports other than `asyncio`, no network, and no filesystem.
 
 ## If the demo won't start
@@ -159,16 +164,29 @@ These strings come from the source.
 
 ## Cost to run
 
-Measured in the video with Claude Code's context indicator, starting from about 55K tokens at the start of the session:
+Estimated, not measured: one code-mode scan of 300 pages on Claude Sonnet 5.5, the model in the video, is about 5 model calls, 320K input tokens (300K of them read from Claude Code's prompt cache), and 3K output tokens, or about $0.10. The video ran plain MCP tools on only 30 pages: that took the context to 142K and cost about $0.28. The tests make no model or Notion calls, and the gateway itself makes no model calls: the cost is your agent's model.
 
-| Run | Pages | Context window at the end |
-| --- | --- | --- |
-| Plain Notion MCP tools | 30 | 142K |
-| Code mode | 30 | 68K |
-| Code mode, MCP server restarted mid-run | 300 | 73K |
-| Code mode on Temporal, Worker stopped mid-run | 300 | 72K |
+| Run | Pages | Context window at the end (measured) | Input tokens, new + cached (est.) | Output tokens (est.) | Cost (est.) |
+| --- | --- | --- | --- | --- | --- |
+| Plain Notion MCP tools | 30 | 142K | 87K + 400K | 2K | about $0.28 |
+| Code mode | 30 | 68K | 13K + 295K | 3K | about $0.09 |
+| Code mode on Temporal, Worker stopped mid-run | 300 | 72K | 17K + 300K | 3K | about $0.10 |
 
-These are context-window sizes, not billed totals. The gateway itself makes no model calls, so the cost is your agent's model, and code mode is what lowers it. Resuming after a Worker restart doesn't re-run finished tool calls. A call that was in flight when the Worker stopped runs again. Starting over without Temporal pays for every call again, plus another agent turn. The tests make no model or Notion calls.
+<details>
+<summary>How the estimate works</summary>
+
+The context-window sizes come from Claude Code's indicator in the video, with the session starting at about 55K tokens. The rest is estimated:
+
+- **Model calls:** 5 per scan, assumed: list the tools, try one page, write and run the script (or make the fetch calls), check the result, and answer. Plain tools may take more calls if the agent fetches in smaller batches.
+- **Input tokens:** each call sends the whole context. New tokens (the growth above 55K) are written to the prompt cache once; the rest is read from the cache on each call. The 55K the session starts with isn't counted.
+- **Output tokens:** a short script and a list of matches, 2K to 3K.
+- **Prices:** Claude Sonnet 5.5 list prices on 2026-11-04: $2.50 per million tokens for 5-minute cache writes, $0.10 per million for cache reads, and $10 per million for output (from https://platform.claude.com/docs/en/about-claude/pricing).
+
+Every later turn in the same session reads the whole context again: about $0.014 per turn at 142K, and about $0.007 at 72K. Plain tools on all 300 pages would add about 870K tokens, close to a 1M context window and over $2 in cache writes alone.
+
+To measure instead of estimate, run `/cost` in Claude Code before and after the scan. Resuming after a Worker restart doesn't re-run finished tool calls, and tool calls don't spend model tokens. A call that was in flight when the Worker stopped runs again. Starting over without Temporal runs every Notion call again and adds another agent turn.
+
+</details>
 
 <a id="architecture-two-processes"></a>
 
