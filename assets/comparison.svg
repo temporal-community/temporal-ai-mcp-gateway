@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" width="1000" height="460" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Plain MCP tools, code mode, and code mode on Temporal</title>
+  <desc>Three ways an agent scans Notion pages, with the context window measured in the video. Plain MCP tools: 30 fetch calls each return a full page body into the agent's context, which reaches 142K tokens. Code mode: one run_script call runs a script in the Monty sandbox, the page bodies stay there, and only the matches come back, so the context reaches 68K tokens for the same 30 pages. Code mode on Temporal: the script runs as a Workflow and each fetch is an Activity; when the Worker restarts, finished fetches don't run again and the queued ones continue, and the context reaches 72K tokens for 300 pages.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .panel { fill: #f6f8fa; stroke: #d0d7de; stroke-width: 1.5; }
+    .box { fill: #ffffff; stroke: #d0d7de; stroke-width: 1.2; }
+    .temporal { fill: #eef0ff; stroke: #5b5bd6; stroke-width: 1.5; }
+    .sandbox { fill: #ffffff; stroke: #8c959f; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .page { fill: #ffffff; stroke: #8c959f; stroke-width: 1; }
+    .h { fill: #1f2328; font-size: 17px; font-weight: 600; }
+    .t { fill: #1f2328; font-size: 14px; font-weight: 600; }
+    .s { fill: #59636e; font-size: 13px; }
+    .m { fill: #1f2328; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .line { stroke: #59636e; stroke-width: 1.6; fill: none; }
+    .head { fill: #59636e; }
+    .track { fill: #e6e9ed; }
+    .base { fill: #b4bcc6; }
+    .fill { fill: #d4a72c; }
+    .num { fill: #1f2328; font-size: 14px; font-weight: 600; }
+    .done { fill: #dafbe1; stroke: #1a7f37; stroke-width: 1.2; }
+    .tick { stroke: #1a7f37; stroke-width: 1.8; fill: none; }
+    .queued { fill: none; stroke: #8c959f; stroke-width: 1.2; stroke-dasharray: 3 3; }
+    .restart { stroke: #cf222e; stroke-width: 1.8; stroke-dasharray: 4 3; }
+    .rtext { fill: #cf222e; font-size: 12px; font-weight: 600; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .panel { fill: #161b22; stroke: #3d444d; }
+      .box, .page { fill: #0d1117; stroke: #3d444d; }
+      .temporal { fill: #1c1b3a; stroke: #8b8cf0; }
+      .sandbox { fill: #0d1117; stroke: #6e7681; }
+      .h, .t, .m, .num { fill: #e6edf3; }
+      .s { fill: #9198a1; }
+      .line { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .track { fill: #262c36; }
+      .base { fill: #4d5562; }
+      .fill { fill: #e3b341; }
+      .done { fill: #12261e; stroke: #3fb950; }
+      .tick { stroke: #3fb950; }
+      .queued { stroke: #6e7681; }
+      .restart { stroke: #f85149; }
+      .rtext { fill: #f85149; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1000" height="460" rx="12"/>
+
+  <!-- ===== Panel 1: plain MCP tools ===== -->
+  <rect class="panel" x="16" y="16" width="312" height="428" rx="10"/>
+  <text class="h" x="36" y="48">1. Plain MCP tools</text>
+  <rect class="box" x="36" y="64" width="272" height="40" rx="8"/>
+  <text class="t" x="172" y="89" text-anchor="middle">Agent</text>
+
+  <line class="line" x1="84" y1="104" x2="84" y2="282" marker-end="url(#a)"/>
+  <text class="s" x="94" y="180">30 fetch</text>
+  <text class="s" x="94" y="198">calls</text>
+
+  <line class="line" x1="250" y1="282" x2="250" y2="108" marker-end="url(#a)"/>
+  <rect class="page" x="178" y="132" width="40" height="24" rx="3"/>
+  <rect class="page" x="178" y="164" width="40" height="24" rx="3"/>
+  <rect class="page" x="178" y="196" width="40" height="24" rx="3"/>
+  <rect class="page" x="178" y="228" width="40" height="24" rx="3"/>
+  <text class="s" x="258" y="180">30 full</text>
+  <text class="s" x="258" y="198">page</text>
+  <text class="s" x="258" y="216">bodies</text>
+
+  <rect class="box" x="36" y="286" width="272" height="40" rx="8"/>
+  <text class="t" x="172" y="311" text-anchor="middle">Notion MCP</text>
+
+  <text class="s" x="36" y="358">Context window, 30 pages</text>
+  <text class="num" x="308" y="358" text-anchor="end">142K tokens</text>
+  <rect class="track" x="36" y="366" width="272" height="14" rx="7"/>
+  <rect class="fill" x="36" y="366" width="257" height="14" rx="7"/>
+  <rect class="base" x="36" y="366" width="100" height="14" rx="7"/>
+  <text class="s" x="36" y="408">Every page body lands in the</text>
+  <text class="s" x="36" y="426">agent's context.</text>
+
+  <!-- ===== Panel 2: code mode ===== -->
+  <rect class="panel" x="344" y="16" width="312" height="428" rx="10"/>
+  <text class="h" x="364" y="48">2. Code mode</text>
+  <rect class="box" x="364" y="64" width="272" height="40" rx="8"/>
+  <text class="t" x="500" y="89" text-anchor="middle">Agent</text>
+
+  <line class="line" x1="412" y1="104" x2="412" y2="136" marker-end="url(#a)"/>
+  <text class="s" x="422" y="126">1 run_script call</text>
+  <line class="line" x1="590" y1="136" x2="590" y2="108" marker-end="url(#a)"/>
+  <text class="s" x="584" y="126" text-anchor="end">matches</text>
+
+  <rect class="sandbox" x="364" y="140" width="272" height="112" rx="8"/>
+  <text class="s" x="378" y="160">Monty sandbox</text>
+  <text class="m" x="378" y="186">for page in pages:</text>
+  <text class="m" x="407" y="206">body = fetch(page)</text>
+  <text class="m" x="407" y="226">if wanted(body):</text>
+  <text class="m" x="436" y="244">keep(page)</text>
+
+  <line class="line" x1="412" y1="252" x2="412" y2="282" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text class="s" x="422" y="272">30 fetches, inside the sandbox</text>
+
+  <rect class="box" x="364" y="286" width="272" height="40" rx="8"/>
+  <text class="t" x="500" y="311" text-anchor="middle">Notion MCP</text>
+
+  <text class="s" x="364" y="358">Context window, 30 pages</text>
+  <text class="num" x="636" y="358" text-anchor="end">68K tokens</text>
+  <rect class="track" x="364" y="366" width="272" height="14" rx="7"/>
+  <rect class="fill" x="364" y="366" width="123" height="14" rx="7"/>
+  <rect class="base" x="364" y="366" width="100" height="14" rx="7"/>
+  <text class="s" x="364" y="408">Page bodies stay in the sandbox;</text>
+  <text class="s" x="364" y="426">only the matches come back.</text>
+
+  <!-- ===== Panel 3: code mode on Temporal ===== -->
+  <rect class="panel" x="672" y="16" width="312" height="428" rx="10"/>
+  <text class="h" x="692" y="48">3. Code mode on Temporal</text>
+  <rect class="box" x="692" y="64" width="272" height="40" rx="8"/>
+  <text class="t" x="828" y="89" text-anchor="middle">Agent</text>
+
+  <line class="line" x1="740" y1="104" x2="740" y2="136" marker-end="url(#a)"/>
+  <text class="s" x="750" y="126">1 run_script call</text>
+  <line class="line" x1="918" y1="136" x2="918" y2="108" marker-end="url(#a)"/>
+  <text class="s" x="912" y="126" text-anchor="end">matches</text>
+
+  <rect class="temporal" x="692" y="140" width="272" height="112" rx="8"/>
+  <text class="s" x="706" y="160">Workflow: one Activity per fetch</text>
+
+  <!-- finished Activities -->
+  <rect class="done" x="706" y="176" width="22" height="22" rx="4"/><path class="tick" d="M711,187 l4,4 l8,-8"/>
+  <rect class="done" x="734" y="176" width="22" height="22" rx="4"/><path class="tick" d="M739,187 l4,4 l8,-8"/>
+  <rect class="done" x="762" y="176" width="22" height="22" rx="4"/><path class="tick" d="M767,187 l4,4 l8,-8"/>
+  <rect class="done" x="790" y="176" width="22" height="22" rx="4"/><path class="tick" d="M795,187 l4,4 l8,-8"/>
+  <rect class="done" x="818" y="176" width="22" height="22" rx="4"/><path class="tick" d="M823,187 l4,4 l8,-8"/>
+  <!-- Worker restart -->
+  <line class="restart" x1="851" y1="170" x2="851" y2="204"/>
+  <!-- queued Activities -->
+  <rect class="queued" x="862" y="176" width="22" height="22" rx="4"/>
+  <rect class="queued" x="890" y="176" width="22" height="22" rx="4"/>
+  <rect class="queued" x="918" y="176" width="22" height="22" rx="4"/>
+  <text class="rtext" x="851" y="222" text-anchor="middle">Worker restart</text>
+  <text class="s" x="706" y="244">Done: not run again</text>
+  <text class="s" x="950" y="244" text-anchor="end">Queued: continue</text>
+
+  <line class="line" x1="740" y1="252" x2="740" y2="282" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text class="s" x="750" y="272">300 fetches, with retries</text>
+
+  <rect class="box" x="692" y="286" width="272" height="40" rx="8"/>
+  <text class="t" x="828" y="311" text-anchor="middle">Notion MCP</text>
+
+  <text class="s" x="692" y="358">Context window, 300 pages</text>
+  <text class="num" x="964" y="358" text-anchor="end">72K tokens</text>
+  <rect class="track" x="692" y="366" width="272" height="14" rx="7"/>
+  <rect class="fill" x="692" y="366" width="131" height="14" rx="7"/>
+  <rect class="base" x="692" y="366" width="100" height="14" rx="7"/>
+  <text class="s" x="692" y="408">A Worker restart mid-run loses</text>
+  <text class="s" x="692" y="426">nothing, and the agent doesn't notice.</text>
+</svg>
