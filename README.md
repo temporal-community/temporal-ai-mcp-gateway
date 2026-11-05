@@ -16,7 +16,7 @@ You'll need some terminology to make effective use of this demo:
 
 This repo is a code-mode MCP gateway built on Temporal. The agent gets one tool, `run_script`, and writes a script against the upstream tools. Only the script's result reaches the model, and every tool call is a durable step. When you know how these pieces fit together, you can put the gateway in front of your own MCP servers and give your agents long, many-call jobs without building retry loops into them.
 
-![The Temporal Web UI timeline of a RunScriptWorkflow while its Worker is stopped. Dozens of call_tool_activity rows for notion_notion_fetch wait for a Worker. Most are on Attempt 1 of 8, a few are on Attempt 2 of 8, and none have failed.](assets/worker-stopped.jpg)
+![Three panels comparing how an agent scans Notion pages, with the context window measured in the video. 1, plain MCP tools: 30 fetch calls each return a full page body into the agent's context, which reaches 142K tokens. 2, code mode: one run_script call runs a script in the Monty sandbox, the page bodies stay there, and only the matches come back, so the context reaches 68K tokens for the same 30 pages. 3, code mode on Temporal: the script runs as a Workflow with one Activity per fetch; at a Worker restart, finished Activities aren't run again and queued ones continue, and the context reaches 72K tokens for 300 pages. In each bar, the gray part is the session's starting point of about 55K tokens.](assets/comparison.svg)
 
 Last verified 2026-11-04: tests pass on macOS (102 passed); the Notion scan wasn't re-run.
 
@@ -26,10 +26,6 @@ This demo addresses two failures:
 
 - **Tool results flood the context window.** With plain Notion MCP tools, checking 30 pages took the agent's context from about 55K tokens to 142K. With code mode, the same 30 pages took it to 68K, because the page bodies stayed in the script's memory.
 - **A long tool-calling run loses its progress.** In real systems, the process running the script dies in a deploy, a laptop sleep, a network drop, or an MCP server restart. Without Temporal, the script's progress lives only in its local memory, so a restart throws away every fetch and the agent runs the script again from the start. The demo's stand-in is stopping the Worker partway through a 300-page scan.
-
-![Plain MCP tools: an agent, a stack of Notion page bodies flowing into it, and a context window bar at 81 percent.](assets/plain-mcp-tools.jpg)
-
-![Code mode: the agent sends one tool call, a script in the Monty sandbox that lists pages, fetches each body, and keeps the matches. The context window bar stays at 30 percent.](assets/code-mode.jpg)
 
 <a id="run"></a>
 <a id="tests"></a>
@@ -136,10 +132,6 @@ uv run durable-mcp-gateway worker   # recovery: prints "durable-mcp-gateway work
 ```
 
 What to notice in the Web UI: while the Worker is stopped, the queued Activities show `Attempt 1 / 8`, and the calls that were in flight show `Attempt 2 / 8`. Nothing fails.
-
-![Without Temporal: the code-mode MCP server restarted, the pages-fetched bar is back to 0 of 300, the label reads start over, and the context window bar is at 89 percent.](assets/without-temporal.jpg)
-
-![Code mode on Temporal: the agent's script sits on top of a Temporal box. Each notion.fetch call becomes a step in Temporal; three are finished and checked, and a fourth is in progress.](assets/code-mode-on-temporal.jpg)
 
 ## Demo takeaways
 
