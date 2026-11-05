@@ -164,27 +164,32 @@ These strings come from the source.
 
 ## Cost to run
 
-Estimated, not measured: one code-mode scan of 300 pages on Claude Sonnet 5.5, the model in the video, is about 5 model calls, 320K input tokens (300K of them read from Claude Code's prompt cache), and 3K output tokens, or about $0.10. The video ran plain MCP tools on only 30 pages: that took the context to 142K and cost about $0.28. The tests make no model or Notion calls, and the gateway itself makes no model calls: the cost is your agent's model.
+A 300-page code-mode scan costs about $0.10: about 5 model calls, adding about 17K tokens to the agent's context. The same 300 pages with plain MCP tools would add about 870K tokens and cost about $2.35. Costs are estimates for Claude Sonnet 5.5, the video's model, at 2026-11-04 list prices; context sizes were measured in the video, from a session that starts at about 55K tokens.
 
-| Run | Pages | Context window at the end (measured) | Input tokens, new + cached (est.) | Output tokens (est.) | Cost (est.) |
-| --- | --- | --- | --- | --- | --- |
-| Plain Notion MCP tools | 30 | 142K | 87K + 400K | 2K | about $0.28 |
-| Code mode | 30 | 68K | 13K + 295K | 3K | about $0.09 |
-| Code mode on Temporal, Worker stopped mid-run | 300 | 72K | 17K + 300K | 3K | about $0.10 |
+| Run | Pages | Context at the end | Added by the scan | Cost per scan (estimated) |
+| --- | --- | --- | --- | --- |
+| Plain MCP tools (video) | 30 | 142K | 87K | about $0.28 |
+| Code mode (video) | 30 | 68K | 13K | about $0.09 |
+| Code mode without Temporal, interrupted (video) | 300 | 73K | 18K | about $0.12 |
+| Code mode on Temporal, interrupted (video) | 300 | 72K | 17K | about $0.10 |
+| Plain MCP tools (not run; scaled from 30 pages) | 300 | about 925K | about 870K | about $2.35 |
+
+**At scale (estimate).** At 100 scans of 300 pages a day, plain tools would cost about $235 a day and code mode about $10.
+
+The gateway and the tests make no model calls; the cost is your agent's model. For what an interruption does with and without Temporal, see [Same scan, two outcomes](#same-scan-two-outcomes).
 
 <details>
 <summary>How the estimate works</summary>
 
-The context-window sizes come from Claude Code's indicator in the video, with the session starting at about 55K tokens. The rest is estimated:
+- **Model calls:** 5 per scan, assumed: list the tools, try one page, write and run the script, check the result, and answer. The run without Temporal takes about one more, because the agent runs the script again after the error.
+- **Input tokens:** each call sends the whole context. Tokens added by the scan are written to the prompt cache once; the rest is read from the cache on each call. The 55K the session starts with isn't counted.
+- **Output tokens:** a short script and a list of matches, 2K to 3K per scan.
+- **The 300-page plain-tools row** scales the 30-page run's 2,900 tokens per page. At about 925K, it nearly fills a 1M context window.
+- **Prices:** Claude Sonnet 5.5 list prices on 2026-11-04: $2.50 per million tokens for 5-minute cache writes, $0.10 per million for cache reads, and $10 per million for output ([pricing](https://platform.claude.com/docs/en/about-claude/pricing)).
+- **Later turns** in the same session re-read the whole context from the cache: about $0.007 per turn at 72K, and $0.09 at 925K.
+- **Tool calls spend no model tokens,** so an interruption's main cost is time and repeated Notion calls, plus the extra agent turn without Temporal.
 
-- **Model calls:** 5 per scan, assumed: list the tools, try one page, write and run the script (or make the fetch calls), check the result, and answer. Plain tools may take more calls if the agent fetches in smaller batches.
-- **Input tokens:** each call sends the whole context. New tokens (the growth above 55K) are written to the prompt cache once; the rest is read from the cache on each call. The 55K the session starts with isn't counted.
-- **Output tokens:** a short script and a list of matches, 2K to 3K.
-- **Prices:** Claude Sonnet 5.5 list prices on 2026-11-04: $2.50 per million tokens for 5-minute cache writes, $0.10 per million for cache reads, and $10 per million for output (from https://platform.claude.com/docs/en/about-claude/pricing).
-
-Every later turn in the same session reads the whole context again: about $0.014 per turn at 142K, and about $0.007 at 72K. Plain tools on all 300 pages would add about 870K tokens, close to a 1M context window and over $2 in cache writes alone.
-
-To measure instead of estimate, run `/cost` in Claude Code before and after the scan. Resuming after a Worker restart doesn't re-run finished tool calls, and tool calls don't spend model tokens. A call that was in flight when the Worker stopped runs again. Starting over without Temporal runs every Notion call again and adds another agent turn.
+To measure instead of estimate, run `/cost` in Claude Code before and after a scan.
 
 </details>
 
