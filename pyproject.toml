@@ -22,6 +22,7 @@ durable-mcp-gateway = "durable_mcp_gateway.cli:main"
 dev = [
     "pytest",
     "pytest-asyncio",
+    "ruff",
 ]
 
 [build-system]
@@ -30,6 +31,18 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["stdio", "durable_mcp_gateway"]
+
+[tool.ruff.lint]
+# Errors only: syntax, undefined names, unused imports and variables (pyflakes).
+# No style or import-order rules, so `ruff check` flags bugs rather than formatting.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Example scripts run in the Monty sandbox, where the gateway injects the upstream tools
+# (notion_notion_fetch, ...) as functions, so they look undefined to a linter.
+"examples/*.py" = ["F821"]
+# Tests import pytest fixtures and then take them as arguments of the same name.
+"tests/*.py" = ["F811"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

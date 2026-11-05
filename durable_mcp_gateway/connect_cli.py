@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from urllib.parse import parse_qs, urlparse
 
 import uvicorn
 from starlette.applications import Starlette
