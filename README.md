@@ -260,7 +260,7 @@ The token reaches tool calls through an opaque session ID: the stdio server pass
 
 ### Video
 
-**Temporal & AI Series: MCP Gateway & Code Mode.** Maple Xu, from Temporal's AI Foundations team, scans a 300-page Notion database three ways: with plain MCP tools, with code mode, and with code mode on Temporal, stopping the Worker partway through.
+**[Temporal & AI Series: MCP Gateway & Code Mode](https://youtu.be/emAjjoT_liY).** Maple Xu, from Temporal's AI Foundations team, scans a 300-page Notion database three ways: with plain MCP tools, with code mode, and with code mode on Temporal, stopping the Worker partway through.
 
 - **What it ran:** Claude Code with the Notion MCP, against a demo database of AI-generated one-pager documents.
 - **No Notion account?** The tests run the Workflow against a local test server and a fixture MCP server, with no keys.
