@@ -18,6 +18,10 @@
                                              Temporal server and its Web UI down
     durable-mcp-gateway stdio                run the MCP server over stdio; a pure client of
                                              the backend (this is what Claude spawns)
+    durable-mcp-gateway seed-demo --parent <page-url>
+                                             create the demo 1-pager database from
+                                             examples/demo-db under a Notion page and print
+                                             its data source URL
 
 Typical order: `connect` your upstreams once, run `backend` in its own terminal, then point
 your MCP client at `stdio`. See the module docstrings in ``connect_cli``, ``serve``, and
@@ -187,6 +191,14 @@ def main() -> None:
         "stdio", parents=[common],
         help="run the MCP server over stdio (a backend client)",
     )
+    sd = sub.add_parser(
+        "seed-demo", parents=[common],
+        help="create the demo 1-pager database (examples/demo-db) under a Notion page",
+    )
+    sd.add_argument(
+        "--parent", required=True, metavar="PAGE_URL",
+        help="the Notion page to create the database under; uses the `connect notion` login",
+    )
 
     args = ap.parse_args()
     config.configure_logging(verbose=args.verbose)
@@ -215,6 +227,10 @@ def main() -> None:
         from stdio.run import main as stdio_main
 
         stdio_main()
+    elif args.command == "seed-demo":
+        from .seed_demo import seed_demo
+
+        seed_demo(args.parent)
 
 
 if __name__ == "__main__":
