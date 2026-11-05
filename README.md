@@ -18,7 +18,7 @@ This repo is a code-mode MCP gateway built on Temporal. The agent gets one tool,
 
 ![Three panels comparing how an agent scans Notion pages, with the context window measured in the video. 1, plain MCP tools: 30 fetch calls each return a full page body into the agent's context, which reaches 142K tokens. 2, code mode: one run_script call runs a script in the Monty sandbox, the page bodies stay there, and only the matches come back, so the context reaches 68K tokens for the same 30 pages. 3, code mode on Temporal: the script runs as a Workflow with one Activity per fetch; at a Worker restart, finished Activities aren't run again and queued ones continue, and the context reaches 72K tokens for 300 pages. In each bar, the gray part is the session's starting point of about 55K tokens.](assets/comparison.svg)
 
-Last verified 2026-11-04: tests (121 passed) and lint pass on macOS; the Notion scan wasn't re-run.
+Last verified 2026-11-04 on macOS: tests (121 passed) and lint pass; `seed-demo` created the 300-page database in about 75 seconds, and the example scan returned `matched 12 of 100` in 13 seconds. The agent runs and the Worker restart weren't re-run.
 
 ## The failure mode
 
@@ -116,7 +116,7 @@ These are the lines the gateway prints at each moment, as written in the source.
 | The Worker stops | `durable-mcp-gateway worker stopped` |
 | The Worker starts again | `durable-mcp-gateway worker ready: polling 'durable-mcp-gateway' at localhost:7677. Press Ctrl-C to stop.` |
 | The gateway without Temporal is stopped mid-scan | `[durable-mcp-gateway] killed — in-flight work is lost.` |
-| The example finishes | `scanning the 100 most recent 1-pagers`, then `matched N of 100` and one line per matching page |
+| The example finishes | `scanning the 100 most recent 1-pagers`, then `matched N of 100` (`matched 12 of 100` on the `seed-demo` database) and one line per matching page |
 
 ## Same scan, two outcomes
 
