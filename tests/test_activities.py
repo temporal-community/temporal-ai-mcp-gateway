@@ -98,6 +98,14 @@ async def test_dropped_session_is_a_tool_error(monkeypatch):
     assert not result.ok
 
 
+async def test_dropped_session_outside_an_activity_is_a_tool_error(monkeypatch):
+    # The --no-temporal runner calls the Activity function directly, with no Activity context.
+    _register_dropping_session(monkeypatch)
+    result = await call_tool_activity(_REQUEST)
+    assert not result.ok
+    assert "BrokenResourceError" in result.error
+
+
 async def test_dropped_session_while_worker_stops_fails_the_activity(monkeypatch):
     # A stopping Worker tears the session down mid-call, so this drop has to be retried on
     # the next Worker rather than handed to the script as a tool error — otherwise a script

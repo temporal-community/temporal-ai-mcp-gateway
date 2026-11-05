@@ -18,13 +18,20 @@
                                              Temporal server and its Web UI down
     durable-mcp-gateway stdio                run the MCP server over stdio; a pure client of
                                              the backend (this is what Claude spawns)
+    durable-mcp-gateway http [--port N]      run the same MCP server over streamable HTTP at
+                                             http://127.0.0.1:N/mcp (default 9677), as a
+                                             long-lived process you can watch and kill
+
+`stdio` and `http` both take --no-temporal: discover the upstreams and run each script in that
+process, with no backend, no retries, and nothing surviving the process. This is code mode
+without Temporal, for comparing against the durable default.
 
 Typical order: `connect` your upstreams once, run `backend` in its own terminal, then point
 your MCP client at `stdio`. See the module docstrings in ``connect_cli``, ``serve``, and
 ``stdio.run`` for the details of each.
 
-Subcommand implementations are imported lazily so that, e.g., running the stdio server doesn't
-pull in the backend's Temporal deps (or the connect flow's HTTP server).
+Subcommand implementations are imported lazily so that, e.g., the stdio and http servers don't
+import ``serve`` (the backend, with its Temporal dev-server deps) or ``connect_cli``.
 """
 
 from __future__ import annotations
@@ -183,10 +190,21 @@ def main() -> None:
         "worker", parents=[common],
         help="run only the backend's worker, against a running `durable-mcp-gateway server`",
     )
-    sub.add_parser(
-        "stdio", parents=[common],
-        help="run the MCP server over stdio (a backend client)",
+    mode = argparse.ArgumentParser(add_help=False)
+    mode.add_argument(
+        "--no-temporal", action="store_true",
+        help="run scripts in this process instead of on the backend: no Temporal, no retries, "
+        "and stopping the process loses any script still running",
     )
+    sub.add_parser(
+        "stdio", parents=[common, mode],
+        help="run the MCP server over stdio (a backend client, unless --no-temporal)",
+    )
+    h = sub.add_parser(
+        "http", parents=[common, mode],
+        help="run the MCP server over streamable HTTP at http://127.0.0.1:PORT/mcp",
+    )
+    h.add_argument("--port", type=int, default=9677, help="port to listen on (default 9677)")
 
     args = ap.parse_args()
     config.configure_logging(verbose=args.verbose)
@@ -214,7 +232,11 @@ def main() -> None:
     elif args.command == "stdio":
         from stdio.run import main as stdio_main
 
-        stdio_main()
+        stdio_main(args.no_temporal)
+    elif args.command == "http":
+        from stdio.run import http_main
+
+        http_main(args.port, args.no_temporal)
 
 
 if __name__ == "__main__":
