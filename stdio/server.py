@@ -14,7 +14,8 @@ from mcp.server.lowlevel import Server
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
-from durable_mcp_gateway import config, vault as vault_mod
+from durable_mcp_gateway import activities, config, vault as vault_mod
+from durable_mcp_gateway.in_process import InProcessRunner
 from durable_mcp_gateway.models import Catalog, RunScript
 from durable_mcp_gateway.workflow import GetCatalogWorkflow, RunScriptWorkflow
 
@@ -184,6 +185,100 @@ async def check_script_result_text(
     return f"Script {handle!r} did not complete — workflow status: {status}."
 
 
+# The run_script description is the contract the model writes scripts against; mirror RunScript's docstring.
+_RUN_SCRIPT_CONTRACT = (
+    "DO THE WHOLE TASK IN ONE SCRIPT. When a task spans many tool calls — especially "
+    "fanning out over a list (fetch N items, check each, collect the matches) — write "
+    "ONE script that does the entire thing: enumerate, loop/gather the calls, and "
+    "filter/aggregate INSIDE the script, returning only the final answer. Do NOT call "
+    "run_script once per item, and do NOT return raw intermediate data (whole page "
+    "bodies, full listings) just to look at it — that pulls everything into your "
+    "context and defeats the purpose. Keep the big data in the sandbox; return only "
+    "the small result. One run_script call should usually be enough for a whole task.\n"
+    "\n"
+    "Sandbox: no network/filesystem/ambient I/O (only `import asyncio`, for "
+    "concurrency). Ordinary Python works (loops, comprehensions, f-strings, print). "
+    "Upstream MCP tools are ASYNC functions, one per tool, called by keyword — you "
+    "must `await` them, and should `asyncio.gather(...)` independent calls to run them "
+    "CONCURRENTLY (far faster than awaiting one at a time). NOTE: the sandbox's asyncio "
+    "is minimal — `gather(*coros)` takes ONLY positional coroutines, no keyword args "
+    "(so NO `return_exceptions=True`), and there is no `Semaphore` or `async with`; "
+    "gather every call and let a failure raise. Call 'list_upstream_tools' "
+    "first for the typed stub of every function; the script is type-checked against it "
+    "before running (unknown functions, missing/extra args, wrong types, and a missing "
+    "`await` are reported up front). A tool returns the typed result the stub shows, "
+    "usually a dict you index with result['key']. When a tool declares no output "
+    "schema that type is LEARNED from what past calls returned, so it is incomplete: "
+    "indexing a field it does not list is a type error, and result.get('field') is the "
+    "way to reach one it has not seen. A learned type does not guarantee the result is "
+    "a dict on any given call, so check before indexing. "
+    "A tool with no schema and nothing learned yet "
+    "returns whatever the upstream sent — a dict, a list, a string, a number, or None "
+    "for a plain-text result — so check it before indexing. "
+    "A tool FAILURE raises a catchable RuntimeError at its await. The script's LAST "
+    "expression is the result, alongside anything it printed.\n"
+)
+
+_RUN_SCRIPT_EXAMPLE = (
+    "Example — the RIGHT shape for 'which of these pages mention X in the body?': one "
+    "script, bodies filtered in the sandbox, only the links come back:\n"
+    "    import asyncio\n"
+    "    async def main():\n"
+    "        rows = (await notion_notion_query_data_sources(data={...}))['results']\n"
+    "        docs = await asyncio.gather(*[notion_notion_fetch(id=r['url']) for r in rows])\n"
+    "        return [r['url'] for r, d in zip(rows, docs) if 'X' in d['text'].lower()]\n"
+    "    asyncio.run(main())"
+)
+
+_RUN_SCRIPT_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "script": {
+            "type": "string",
+            "description": "The Python/monty script source to run in the sandbox.",
+        },
+    },
+    "required": ["script"],
+}
+
+_LIST_UPSTREAM_TOOLS_DESCRIPTION = (
+    "Return a typed Python stub (a .py source string) describing every upstream MCP "
+    "tool run_script can call: one keyword-only function per tool, with the tool's "
+    "description as the docstring. A tool that declares an output schema has a typed "
+    "result — a TypedDict when that schema is an object, otherwise the type the "
+    "schema maps to. A tool that declares none gets a TypedDict built from the fields "
+    "its past calls returned, which is incomplete by construction: index only the "
+    "fields it lists and use result.get('field') for any other. Until such a tool has "
+    "returned something, its result is untyped. "
+    "Write run_script scripts against these signatures — the script is type-checked "
+    "against this stub. "
+)
+
+_LIST_UPSTREAM_TOOLS_AS_JSON_DESCRIPTION = (
+    "List the upstream MCP tools as raw JSON. Returns {\"tools\": [...]} where each "
+    "entry is {name, py_name, py_arg_map, description, input_schema, output_schema}. "
+    "Prefer 'list_upstream_tools' (the typed stub) for writing scripts; this is the "
+    "underlying schema data."
+)
+
+
+def _local_session_provider() -> Callable[[], Awaitable[str]]:
+    # One local user per process. Over stdio, OS process isolation is the trust boundary;
+    # over http, anything that can reach the loopback port acts as this user. It
+    # mints an opaque session handle for that user and threads it into each run; the
+    # call_tool_activity resolves it to pick the right OAuth token. Cached per process so
+    # we don't churn session rows.
+    vault = vault_mod.open_default_vault()
+    _session: dict[str, str] = {}
+
+    async def local_session_id() -> str:
+        if "id" not in _session:
+            _session["id"] = await vault.create_session(config.LOCAL_USER_ID)
+        return _session["id"]
+
+    return local_session_id
+
+
 def build_server(
     get_client: Callable[[], Awaitable[Client]], task_queue: str
 ) -> Server:
@@ -196,110 +291,38 @@ def build_server(
     separately (see ``durable_mcp_gateway.serve``) so workflows outlive a Claude session.
     """
     server: Server = Server("durable-mcp-gateway")
-
-    # This stdio server acts as one local user (OS process isolation is the trust
-    # boundary). It mints an opaque session handle for that user and threads it into
-    # the Workflow; the call_tool_activity resolves it to pick the right OAuth token.
-    # Cached per process so we don't churn session rows.
-    vault = vault_mod.open_default_vault()
-    _session: dict[str, str] = {}
-
-    async def local_session_id() -> str:
-        if "id" not in _session:
-            _session["id"] = await vault.create_session(config.LOCAL_USER_ID)
-        return _session["id"]
+    local_session_id = _local_session_provider()
 
     run_script_tool = types.Tool(
         name="run_script",
-        # The description is the contract the model writes scripts against; mirror RunScript's docstring.
         description=(
             "Durably run a Python script in the pydantic-monty sandbox via a Temporal "
             "Workflow, and get back only what the script returns and prints.\n"
             "\n"
-            "DO THE WHOLE TASK IN ONE SCRIPT. When a task spans many tool calls — especially "
-            "fanning out over a list (fetch N items, check each, collect the matches) — write "
-            "ONE script that does the entire thing: enumerate, loop/gather the calls, and "
-            "filter/aggregate INSIDE the script, returning only the final answer. Do NOT call "
-            "run_script once per item, and do NOT return raw intermediate data (whole page "
-            "bodies, full listings) just to look at it — that pulls everything into your "
-            "context and defeats the purpose. Keep the big data in the sandbox; return only "
-            "the small result. One run_script call should usually be enough for a whole task.\n"
-            "\n"
-            "Sandbox: no network/filesystem/ambient I/O (only `import asyncio`, for "
-            "concurrency). Ordinary Python works (loops, comprehensions, f-strings, print). "
-            "Upstream MCP tools are ASYNC functions, one per tool, called by keyword — you "
-            "must `await` them, and should `asyncio.gather(...)` independent calls to run them "
-            "CONCURRENTLY (far faster than awaiting one at a time). NOTE: the sandbox's asyncio "
-            "is minimal — `gather(*coros)` takes ONLY positional coroutines, no keyword args "
-            "(so NO `return_exceptions=True`), and there is no `Semaphore` or `async with`; "
-            "gather every call and let a failure raise. Call 'list_upstream_tools' "
-            "first for the typed stub of every function; the script is type-checked against it "
-            "before running (unknown functions, missing/extra args, wrong types, and a missing "
-            "`await` are reported up front). A tool returns the typed result the stub shows, "
-            "usually a dict you index with result['key']. When a tool declares no output "
-            "schema that type is LEARNED from what past calls returned, so it is incomplete: "
-            "indexing a field it does not list is a type error, and result.get('field') is the "
-            "way to reach one it has not seen. A learned type does not guarantee the result is "
-            "a dict on any given call, so check before indexing. "
-            "A tool with no schema and nothing learned yet "
-            "returns whatever the upstream sent — a dict, a list, a string, a number, or None "
-            "for a plain-text result — so check it before indexing. "
-            "A tool FAILURE raises a catchable RuntimeError at its await. The script's LAST "
-            "expression is the result, alongside anything it printed.\n"
-            "\n"
+            + _RUN_SCRIPT_CONTRACT
+            + "\n"
             "If the script takes longer than ~10s it does NOT block: it returns a `handle` and "
             "a live Temporal UI URL (the script keeps running on the backend). Tell the user "
             "they can watch progress at that URL, then use `wait_script_result` (blocks) or "
             "`check_script_result` (polls) with the handle to get the result.\n"
             "\n"
-            "Example — the RIGHT shape for 'which of these pages mention X in the body?': one "
-            "script, bodies filtered in the sandbox, only the links come back:\n"
-            "    import asyncio\n"
-            "    async def main():\n"
-            "        rows = (await notion_notion_query_data_sources(data={...}))['results']\n"
-            "        docs = await asyncio.gather(*[notion_notion_fetch(id=r['url']) for r in rows])\n"
-            "        return [r['url'] for r, d in zip(rows, docs) if 'X' in d['text'].lower()]\n"
-            "    asyncio.run(main())"
+            + _RUN_SCRIPT_EXAMPLE
         ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "script": {
-                    "type": "string",
-                    "description": "The Python/monty script source to run in the sandbox.",
-                },
-            },
-            "required": ["script"],
-        },
+        inputSchema=_RUN_SCRIPT_INPUT_SCHEMA,
     )
 
     list_upstream_tools_tool = types.Tool(
         name="list_upstream_tools",
-        description=(
-            "Return a typed Python stub (a .py source string) describing every upstream MCP "
-            "tool run_script can call: one keyword-only function per tool, with the tool's "
-            "description as the docstring. A tool that declares an output schema has a typed "
-            "result — a TypedDict when that schema is an object, otherwise the type the "
-            "schema maps to. A tool that declares none gets a TypedDict built from the fields "
-            "its past calls returned, which is incomplete by construction: index only the "
-            "fields it lists and use result.get('field') for any other. Until such a tool has "
-            "returned something, its result is untyped. "
-            "Write run_script scripts against these signatures — the script is type-checked "
-            "against this stub. "
-            "The stub is produced by the durable backend; if it isn't running yet a note is "
-            "returned instead. For the raw JSON Schemas use 'list_upstream_tools_as_json'."
-        ),
+        description=_LIST_UPSTREAM_TOOLS_DESCRIPTION
+        + "The stub is produced by the durable backend; if it isn't running yet a note is "
+        "returned instead. For the raw JSON Schemas use 'list_upstream_tools_as_json'.",
         inputSchema={"type": "object", "properties": {}},
     )
 
     list_upstream_tools_as_json_tool = types.Tool(
         name="list_upstream_tools_as_json",
-        description=(
-            "List the upstream MCP tools as raw JSON. Returns {\"tools\": [...]} where each "
-            "entry is {name, py_name, py_arg_map, description, input_schema, output_schema}. "
-            "Prefer 'list_upstream_tools' (the typed stub) for writing scripts; this is the "
-            "underlying schema data. Empty if the durable backend isn't running yet."
-        ),
+        description=_LIST_UPSTREAM_TOOLS_AS_JSON_DESCRIPTION
+        + " Empty if the durable backend isn't running yet.",
         inputSchema={"type": "object", "properties": {}},
     )
 
@@ -379,5 +402,67 @@ def build_server(
             return [types.TextContent(type="text", text=text)]
 
         raise ValueError(f"unknown tool {name!r}")
+
+    return server
+
+
+def build_no_temporal_server(progress: Callable[[str], None] | None = None) -> Server:
+    """Build the MCP server for ``--no-temporal`` mode, which needs no Temporal client.
+
+    Scripts run in this process (see :class:`InProcessRunner`), so ``run_script`` blocks until
+    the script finishes and there is no handle to follow; the listing tools serve this
+    process's registry, which the caller must populate first with ``upstreams.setup_worker()``.
+    ``progress``, if given, receives one line per finished tool call.
+    """
+    server: Server = Server("durable-mcp-gateway")
+    local_session_id = _local_session_provider()
+    runner = InProcessRunner(progress)
+
+    run_script_tool = types.Tool(
+        name="run_script",
+        description=(
+            "Run a Python script in the pydantic-monty sandbox, in this gateway's process, and "
+            "get back only what the script returns and prints. The call blocks until the "
+            "script finishes; tool calls are not retried.\n"
+            "\n"
+            + _RUN_SCRIPT_CONTRACT
+            + "\n"
+            + _RUN_SCRIPT_EXAMPLE
+        ),
+        inputSchema=_RUN_SCRIPT_INPUT_SCHEMA,
+    )
+
+    list_upstream_tools_tool = types.Tool(
+        name="list_upstream_tools",
+        description=_LIST_UPSTREAM_TOOLS_DESCRIPTION
+        + "For the raw JSON Schemas use 'list_upstream_tools_as_json'.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+
+    list_upstream_tools_as_json_tool = types.Tool(
+        name="list_upstream_tools_as_json",
+        description=_LIST_UPSTREAM_TOOLS_AS_JSON_DESCRIPTION,
+        inputSchema={"type": "object", "properties": {}},
+    )
+
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [run_script_tool, list_upstream_tools_tool, list_upstream_tools_as_json_tool]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict | None) -> list[types.ContentBlock]:
+        if name == "list_upstream_tools":
+            text = (await activities.get_catalog()).stub
+        elif name == "list_upstream_tools_as_json":
+            text = json.dumps({"tools": (await activities.get_catalog()).tools})
+        elif name == "run_script":
+            script = (arguments or {}).get("script")
+            if not isinstance(script, str) or not script.strip():
+                text = "run_script requires a non-empty 'script' string."
+            else:
+                text = await runner.run_script(script, await local_session_id())
+        else:
+            raise ValueError(f"unknown tool {name!r}")
+        return [types.TextContent(type="text", text=text)]
 
     return server

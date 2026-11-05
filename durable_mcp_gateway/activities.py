@@ -154,7 +154,8 @@ async def call_tool_activity(request: CallToolRequest) -> CallToolResult:
         reconnect = upstreams.find_reconnect(e)
         if reconnect is not None:
             return CallToolResult(ok=False, error=str(reconnect))
-        details = activity.cancellation_details()
+        # The --no-temporal runner calls this outside any Activity, so there is no Worker to stop.
+        details = activity.cancellation_details() if activity.in_activity() else None
         if details is not None and details.worker_shutdown:
             # The Worker is stopping, which tears this session down mid-call — the tool
             # didn't fail. Fail the Activity so Temporal reruns the call on the next Worker
