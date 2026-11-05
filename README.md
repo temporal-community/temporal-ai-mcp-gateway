@@ -118,7 +118,7 @@ These are the lines the gateway prints at each moment, as written in the source.
 
 In the video, Maple runs the same 300-page scan twice in code mode and interrupts it partway through each time. In real systems, the interruption is a deploy, a laptop that goes to sleep, or an MCP server restart.
 
-| | Without Temporal (shown in the video only) | With this gateway |
+| | Without Temporal | With this gateway |
 | --- | --- | --- |
 | What fails | The code-mode MCP server restarts after a couple hundred fetches. | The Worker stops partway through the fetches. |
 | What happens | The script's progress lived in its local memory, so every fetch is lost. The agent gets a connection error and runs the script again from the start. | The Workflow pauses. Finished fetches stay in Event History, and queued fetches wait for a Worker. The agent is still on the same tool call and doesn't notice. |
@@ -133,6 +133,8 @@ uv run durable-mcp-gateway worker   # recovery: prints "durable-mcp-gateway work
 
 What to notice in the Web UI: while the Worker is stopped, the queued Activities show `Attempt 1 / 8`, and the calls that were in flight show `Attempt 2 / 8`. Nothing fails.
 
+To try the side without Temporal, run `uv run durable-mcp-gateway http --no-temporal` in its own terminal, register it with `claude mcp add --transport http --scope user gateway-nt http://127.0.0.1:9677/mcp`, and ask for the same scan through `gateway-nt`. Press Ctrl-C partway through: it prints `killed — in-flight work is lost.`, and the scan has to start over.
+
 ## Demo takeaways
 
 - Code mode cuts context use because tool results stay in the script's memory. In the video, 30 pages took 142K tokens with plain tools and 68K with code mode.
@@ -142,7 +144,6 @@ What to notice in the Web UI: while the Worker is stopped, the queued Activities
 ## What this demo is not
 
 - **Not a production gateway.** It runs one local user against a local Temporal dev server, and stores OAuth tokens in macOS Keychain or a `0600` file.
-- **Not the without-Temporal comparison.** The video's non-durable code-mode run used a separate setup that isn't in this repo.
 - **Not safe for write tools as is.** A tool call can run more than once: Activities retry up to 8 times, and a call in flight when the Worker stops runs again. That's fine for reads like `notion-fetch`. A tool that writes needs an idempotency key the upstream checks, or should be left out with the upstream's `"skip"` list.
 - **Not general Python.** Scripts run in the Monty sandbox, with no imports other than `asyncio`, no network, and no filesystem.
 
